@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  background: white;
+}
+@keyframes redBlink {
+  0%,
+  49% {
+    filter: none;
+  }
+  50%,
+  100% {
+    filter: brightness(0) saturate(100%) invert(27%) sepia(51%) saturate(2878%)
+      hue-rotate(346deg) brightness(104%) contrast(97%);
+  }
+}
+
+.ppe-violation-blink {
+  animation: redBlink 1.5s step-start infinite;
+}
