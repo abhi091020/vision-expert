@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { apiPostForm, apiPost } from "../../api/client";
 
-export default function FileUpload({ onStreamStart, onStreamStop }) {
+export default function FileUpload({ onStreamStart, onStreamStop, activeTab }) {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -42,7 +42,7 @@ export default function FileUpload({ onStreamStart, onStreamStop }) {
       if (uploadRes.status !== "success") throw new Error("Upload failed");
       setUploadedName(uploadRes.filename);
 
-      // Step 3 — start people-counter stream
+      // Step 3 — start stream
       const processRes = await apiPost("/process_file", {
         filename: uploadRes.filename,
       });
@@ -54,48 +54,82 @@ export default function FileUpload({ onStreamStart, onStreamStop }) {
         setProcessing(true);
         onStreamStart?.();
 
-        // Step 4 — Animal detection (non-blocking, 1.5s delay so stream renders first)
-        setTimeout(async () => {
-          try {
-            const animalFd = new FormData();
-            animalFd.append("file", file);
-            const animalRes = await apiPostForm(
-              "/animal/detect?camera_id=1",
-              animalFd,
-            );
-            window.dispatchEvent(
-              new CustomEvent("animalDetected", { detail: animalRes }),
-            );
-          } catch (_) {
-            // Non-blocking — stream continues regardless
-          }
-        }, 1500);
+        // Step 4 — PPE detection (only on ppe tab)
+        if (activeTab === "ppe") {
+          setTimeout(async () => {
+            try {
+              const ppeFd = new FormData();
+              ppeFd.append("file", file);
+              const ppeRes = await apiPostForm("/ppe/detect", ppeFd);
+              window.dispatchEvent(
+                new CustomEvent("ppeDetected", { detail: ppeRes }),
+              );
+            } catch (_) {}
+          }, 500);
+        }
 
-        // Step 5 — Fire detection (non-blocking, 2s delay to stagger model loads)
-        setTimeout(async () => {
-          try {
-            const fireFd = new FormData();
-            fireFd.append("file", file);
-            const fireRes = await apiPostForm(
-              "/fire/detect?camera_id=1",
-              fireFd,
-            );
-            // Normalise to match FireDetection component's expected shape:
-            // { detected, status, image, camera_id }
-            window.dispatchEvent(
-              new CustomEvent("fireDetected", {
-                detail: {
-                  detected: fireRes.detected ?? false,
-                  status: fireRes.status ?? fireRes.type ?? "No Detection",
-                  image: fireRes.image ?? fireRes.annotated_image ?? null,
-                  camera_id: fireRes.camera_id ?? "1",
-                },
-              }),
-            );
-          } catch (_) {
-            // Non-blocking — stream continues regardless
-          }
-        }, 2000);
+        // Step 5 — Animal detection (only on animal tab)
+        if (activeTab === "animal") {
+          setTimeout(async () => {
+            try {
+              const animalFd = new FormData();
+              animalFd.append("file", file);
+              const animalRes = await apiPostForm(
+                "/animal/detect?camera_id=1",
+                animalFd,
+              );
+              window.dispatchEvent(
+                new CustomEvent("animalDetected", { detail: animalRes }),
+              );
+            } catch (_) {}
+          }, 500);
+        }
+
+        // Step 6 — Fire detection (only on fire tab)
+        if (activeTab === "fire") {
+          setTimeout(async () => {
+            try {
+              const fireFd = new FormData();
+              fireFd.append("file", file);
+              const fireRes = await apiPostForm(
+                "/fire/detect?camera_id=1",
+                fireFd,
+              );
+              window.dispatchEvent(
+                new CustomEvent("fireDetected", {
+                  detail: {
+                    detected: fireRes.detected ?? false,
+                    status: fireRes.status ?? fireRes.type ?? "No Detection",
+                    image: fireRes.image ?? fireRes.annotated_image ?? null,
+                    camera_id: fireRes.camera_id ?? "1",
+                  },
+                }),
+              );
+            } catch (_) {}
+          }, 500);
+        }
+
+        // Step 7 — Number Plate detection (only on dock tab)
+        if (activeTab === "dock") {
+          setTimeout(async () => {
+            try {
+              await apiPost("/set_mode/PLATE"); // ✅ fixed: was DOCK
+              const plateFd = new FormData();
+              plateFd.append("file", file);
+              const plateRes = await apiPostForm(
+                "/plate/detect?camera_id=1",
+                plateFd,
+              );
+              window.dispatchEvent(
+                new CustomEvent("plateDetected", { detail: plateRes }),
+              );
+            } catch (_) {}
+          }, 500);
+        }
+
+        // Step 8 — Crowd mode (only on crowd tab) — no extra detect call needed,
+        // the backend handles crowd counting from the video stream automatically.
+        // Just ensure the mode is set correctly (already done via handleTabChange).
       } else {
         throw new Error(
           "Process failed: " + (processRes.message ?? "unknown error"),
@@ -122,7 +156,6 @@ export default function FileUpload({ onStreamStart, onStreamStop }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Drop Zone */}
       <label
         onDragOver={(e) => {
           e.preventDefault();
@@ -158,7 +191,6 @@ export default function FileUpload({ onStreamStart, onStreamStop }) {
         />
       </label>
 
-      {/* Selected File */}
       {file && (
         <div
           className="flex items-center gap-3 px-4 py-3 rounded-xl"
@@ -191,7 +223,6 @@ export default function FileUpload({ onStreamStart, onStreamStop }) {
         </div>
       )}
 
-      {/* Action Button */}
       {!processing ? (
         <button
           onClick={handleStart}

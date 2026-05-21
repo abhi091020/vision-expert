@@ -34,7 +34,6 @@ function useSiren(triggered, muted) {
   const inCycle = useRef(false);
   const trigRef = useRef(triggered);
   const mutedRef = useRef(muted);
-
   trigRef.current = triggered;
   mutedRef.current = muted;
 
@@ -51,14 +50,12 @@ function useSiren(triggered, muted) {
       broadcastSiren(false);
       return;
     }
-
     broadcastSiren(true);
     const el = audioRef.current;
     if (el && !mutedRef.current) {
       el.currentTime = 0;
       el.play().catch(() => {});
     }
-
     setTimeout(() => {
       stopAudio();
       setTimeout(() => {
@@ -66,14 +63,11 @@ function useSiren(triggered, muted) {
         if (trigRef.current) {
           inCycle.current = true;
           runCycle();
-        } else {
-          broadcastSiren(false);
-        }
+        } else broadcastSiren(false);
       }, 10_000);
     }, 5_000);
   }
 
-  // Effect 1 — controls the cycle only, never reruns on mute change
   useEffect(() => {
     if (triggered && !inCycle.current) {
       inCycle.current = true;
@@ -86,7 +80,6 @@ function useSiren(triggered, muted) {
     }
   }, [triggered]);
 
-  // Effect 2 — mute/unmute instantly, never touches the cycle
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
@@ -94,13 +87,11 @@ function useSiren(triggered, muted) {
       el.pause();
       el.currentTime = 0;
     } else if (trigRef.current && inCycle.current) {
-      // unmuted while still triggered — play immediately
       el.currentTime = 0;
       el.play().catch(() => {});
     }
   }, [muted]);
 
-  // Cleanup on unmount
   useEffect(
     () => () => {
       stopAudio();
@@ -108,18 +99,23 @@ function useSiren(triggered, muted) {
     },
     [],
   );
-
   return audioRef;
 }
 
-export default function SecureArea({ active = true }) {
-  const { data, history, loading } = useSafetyStatus(active);
+export default function SecureArea({
+  active = true,
+  wsDetections = null,
+  streamActive = false,
+}) {
+  const { data, history, loading } = useSafetyStatus(active, wsDetections);
   const cfg = getConfig(data.status);
 
   const [preview, setPreview] = useState(null);
   const [muted, setMuted] = useState(false);
 
-  const detected = !loading && data.status !== "SAFE" && data.count > 0;
+  // ✅ Siren only fires when stream is actually active
+  const detected =
+    streamActive && !loading && data.status !== "SAFE" && data.count > 0;
   const audioRef = useSiren(detected, muted);
 
   return (
@@ -145,7 +141,6 @@ export default function SecureArea({ active = true }) {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Close */}
             <button
               onClick={() => setPreview(null)}
               className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-lg"
@@ -153,8 +148,6 @@ export default function SecureArea({ active = true }) {
             >
               ✕
             </button>
-
-            {/* Image */}
             <img
               src={preview.src}
               alt="Preview"
@@ -165,8 +158,6 @@ export default function SecureArea({ active = true }) {
                 objectFit: "contain",
               }}
             />
-
-            {/* Meta bar */}
             <div className="flex items-center gap-6 px-5 py-3 text-xs text-gray-300">
               <span>
                 <span className="text-gray-500 mr-1">Time</span>
@@ -183,14 +174,13 @@ export default function SecureArea({ active = true }) {
                 <span className="font-bold text-white">{preview.count}</span>
               </span>
               <button
-                onClick={() => {
+                onClick={() =>
                   fetch(preview.src)
                     .then((r) => r.blob())
-                    .then((blob) => {
-                      const url = URL.createObjectURL(blob);
-                      window.open(url, "_blank");
-                    });
-                }}
+                    .then((blob) =>
+                      window.open(URL.createObjectURL(blob), "_blank"),
+                    )
+                }
                 className="ml-auto px-3 py-1 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 transition-colors"
               >
                 🔍 Open Full Size
@@ -256,8 +246,7 @@ export default function SecureArea({ active = true }) {
               ✅ Area Secure
             </span>
           )}
-
-          {data.image && (
+          {data.image && streamActive && (
             <img
               src={toSrc(data.image)}
               alt="Live snapshot"
@@ -293,7 +282,6 @@ export default function SecureArea({ active = true }) {
             </span>
           ))}
         </div>
-
         <div className="flex-1 overflow-y-auto divide-y divide-black/5">
           {history.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-32 text-gray-400">

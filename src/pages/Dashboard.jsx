@@ -9,6 +9,7 @@ import Footer from "../components/Common/Footer";
 import CameraTable from "../components/NetworkCameras/CameraTable";
 import { CAMERAS, NAV_TABS } from "../data/mockData";
 import { useStats } from "../hooks/useDetection";
+import { useWebSocketStream } from "../hooks/useWebSocketStream";
 import { apiPost, apiGet } from "../api/client";
 
 export default function Dashboard() {
@@ -18,7 +19,18 @@ export default function Dashboard() {
   const [streamActive, setStreamActive] = useState(false);
   const [streamKey, setStreamKey] = useState(0);
 
-  const metrics = useStats();
+  // ── Single WebSocket connection for the whole app ──────────────────────────
+  const { frameUrl, mode, detections, connected } = useWebSocketStream(true);
+
+  // ── Stats: use WS data when mode is COUNTING, else fall back to polling ────
+  const wsCountingData = mode === "COUNTING" ? detections : null;
+  const metrics = useStats(wsCountingData);
+
+  // ── Per-mode detections passed down to child panels ───────────────────────
+  const wsFireData = mode === "FIRE" ? detections : null;
+  const wsAnimalData = mode === "ANIMAL" ? detections : null;
+  const wsSafetyData = mode === "SAFETY" ? detections : null;
+  const wsPlateData = mode === "PLATE" ? detections : null; // ✅ added
 
   function togglePanel(panel) {
     setActivePanel((prev) => (prev === panel ? null : panel));
@@ -43,7 +55,6 @@ export default function Dashboard() {
         await apiGet("/animal/clear").catch(() => {});
       } catch (_) {}
     }
-
     if (prevTab === "fire" || tab.id === "fire") {
       try {
         await apiGet("/fire/clear").catch(() => {});
@@ -67,23 +78,24 @@ export default function Dashboard() {
         backgroundRepeat: "no-repeat",
       }}
     >
-      <Navbar />
+      <Navbar wsConnected={connected} />
 
       <div className="relative z-10 flex h-full pt-[14vh] px-[4vw] pb-[10vh] gap-[2vw] min-h-0">
-        {/* Left — self-start so it never stretches with right panel */}
+        {/* Left */}
         <div className="w-[45%] flex flex-col justify-start gap-2 self-start flex-shrink-0">
-          {/* Camera — padding-top trick locks 16:9 regardless of surroundings */}
+          {/* Camera — WebSocket frame passed as frameSrc */}
           <div className="w-full relative" style={{ paddingTop: "56.25%" }}>
             <div className="absolute inset-0">
               <CameraFeed
                 selectedCamera={selectedCamera}
                 streamActive={streamActive}
                 streamKey={streamKey}
+                frameSrc={frameUrl}
+                wsConnected={connected}
                 onStop={handleStreamStop}
               />
             </div>
           </div>
-
           {/* Buttons */}
           <div className="flex gap-3 mt-1">
             <button
@@ -111,9 +123,12 @@ export default function Dashboard() {
               File Upload
             </button>
           </div>
-
-          {/* Camera Table */}
-          <CameraTable onStreamStart={handleStreamStart} />
+          <CameraTable
+            onStreamStart={handleStreamStart}
+            onStreamStop={handleStreamStop}
+            streamActive={streamActive}
+          />
+          cc
         </div>
 
         {/* Right */}
@@ -137,7 +152,7 @@ export default function Dashboard() {
             ))}
           </div>
 
-          {/* Panel Content */}
+          {/* Panel Content — WS detections forwarded per-mode */}
           <div className="flex-1 min-h-0">
             <PPEPanel
               selectedCamera={selectedCamera}
@@ -146,6 +161,10 @@ export default function Dashboard() {
               activeTab={activeTab}
               metrics={metrics}
               hideTabs
+              wsFireData={wsFireData}
+              wsAnimalData={wsAnimalData}
+              wsSafetyData={wsSafetyData}
+              wsPlateData={wsPlateData} // ✅ added
             />
           </div>
         </div>
@@ -211,6 +230,7 @@ export default function Dashboard() {
               <FileUpload
                 onStreamStart={handleStreamStart}
                 onStreamStop={handleStreamStop}
+                activeTab={activeTab}
               />
             )}
           </div>

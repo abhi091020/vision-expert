@@ -1,9 +1,12 @@
 export default function Footer() {
   return (
-    <div className="absolute bottom-0 left-0 w-full z-10 px-[4vw] py-[0.8vh]">
-      <p className="text-[#0085D4] text-[16px] font-medium">
+    <footer className="w-full px-3 sm:px-5 py-4 mt-6">
+      <p
+        className="font-poppins text-[13px] sm:text-[15px] font-normal"
+        style={{ color: "#05517E" }}
+      >
         Powered by DAccess Security Systems Pvt. Ltd
       </p>
-    </div>
+    </footer>
   );
 }

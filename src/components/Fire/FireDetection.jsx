@@ -1,14 +1,14 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import sirenSrc from "../../assets/Siren1.mp3";
-import { apiGet } from "../../api/client";
+import { useFireStatus } from "../../hooks/useDetection";
 
+// ─── Siren hook ───────────────────────────────────────────────────────────────
 function useSiren(triggered, muted) {
   const audioRef = useRef(null);
   const inCycle = useRef(false);
-  const inPlayPhase = useRef(false); // true during 5s play, false during 10s gap
+  const inPlayPhase = useRef(false);
   const trigRef = useRef(triggered);
   const mutedRef = useRef(muted);
-
   trigRef.current = triggered;
   mutedRef.current = muted;
 
@@ -25,14 +25,12 @@ function useSiren(triggered, muted) {
       inPlayPhase.current = false;
       return;
     }
-
     inPlayPhase.current = true;
     const el = audioRef.current;
     if (el && !mutedRef.current) {
       el.currentTime = 0;
       el.play().catch(() => {});
     }
-
     setTimeout(() => {
       stopAudio();
       inPlayPhase.current = false;
@@ -46,7 +44,6 @@ function useSiren(triggered, muted) {
     }, 5_000);
   }
 
-  // Effect 1 — cycle only, never reruns on mute
   useEffect(() => {
     if (triggered && !inCycle.current) {
       inCycle.current = true;
@@ -59,7 +56,6 @@ function useSiren(triggered, muted) {
     }
   }, [triggered]);
 
-  // Effect 2 — mute/unmute only, never touches cycle
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
@@ -67,20 +63,12 @@ function useSiren(triggered, muted) {
       el.pause();
       el.currentTime = 0;
     } else if (trigRef.current && inPlayPhase.current) {
-      // unmuted during play phase — resume, runCycle's setTimeout will stop it
       el.currentTime = 0;
       el.play().catch(() => {});
     }
-    // unmuted during gap phase — do nothing, next cycle plays automatically
   }, [muted]);
 
-  useEffect(
-    () => () => {
-      stopAudio();
-    },
-    [],
-  );
-
+  useEffect(() => () => stopAudio(), []);
   return audioRef;
 }
 
@@ -102,104 +90,46 @@ function openFullSize(src) {
     });
 }
 
-export default function FireDetection({ active = true }) {
-  const [data, setData] = useState({
-    detected: false,
-    status: "No Detection",
-    image: null,
-    camera_id: null,
-    detected_at: 0,
-  });
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(false);
+// ─── FireDetection ────────────────────────────────────────────────────────────
+export default function FireDetection({ active = true, wsDetections = null }) {
   const [preview, setPreview] = useState(null);
   const [muted, setMuted] = useState(false);
-  const currentRef = useRef(null);
 
-  function appendHistory(status, image, camera_id, label = null) {
-    setHistory((prev) => [
-      {
-        id: Date.now() + Math.random(),
-        status,
-        image,
-        camera_id,
-        label,
-        time: new Date().toLocaleTimeString(),
-      },
-      ...prev.slice(0, 49),
-    ]);
-  }
+  // ── File-upload override state ─────────────────────────────────────────────
+  // Holds the result from /fire/detect (one-shot file upload).
+  // Takes priority over WS/polling data when fire is detected.
+  const [fileResult, setFileResult] = useState(null);
+  const fileResultTimerRef = useRef(null);
 
-  useEffect(() => {
-    if (!active) return;
-    currentRef.current = null;
-    setData({
-      detected: false,
-      status: "No Detection",
-      image: null,
-      camera_id: null,
-      detected_at: 0,
-    });
-    setLoading(true);
+  // All state + history managed in the hook (WS or polling)
+  const {
+    data: hookData,
+    history,
+    loading,
+    appendHistory,
+  } = useFireStatus(active, wsDetections);
 
-    async function poll() {
-      try {
-        const res = await apiGet("/fire/status");
-        if (res.detected) {
-          setData(res);
-          const prev = currentRef.current;
-          const isNew = !prev || prev.detected !== res.detected;
-          if (isNew) {
-            if (prev && prev.detected)
-              appendHistory(
-                prev.status,
-                prev.image,
-                prev.camera_id,
-                "Fire cleared",
-              );
-            appendHistory(res.status, res.image ?? null, res.camera_id);
-          } else {
-            currentRef.current.image = res.image ?? null;
-          }
-          currentRef.current = {
-            detected: res.detected,
-            status: res.status,
-            image: res.image ?? null,
-            camera_id: res.camera_id,
-          };
-        } else {
-          if (currentRef.current?.detected) {
-            const prev = currentRef.current;
-            appendHistory(
-              prev.status,
-              prev.image,
-              prev.camera_id,
-              "Fire cleared",
-            );
-            currentRef.current = null;
-          }
-          setData({
-            detected: false,
-            status: res.status ?? "No Detection",
-            image: null,
-            camera_id: null,
-            detected_at: 0,
-          });
-        }
-      } catch (_) {
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    poll();
-    const id = setInterval(poll, 2000);
-    return () => clearInterval(id);
-  }, [active]);
-
+  // ── Listen for fireDetected event (from FileUpload) ────────────────────────
+  // Now updates BOTH the live status card AND the history table.
   useEffect(() => {
     function handleResult(e) {
       const res = e.detail;
+
+      // Update live status card immediately
+      setFileResult({
+        detected: res.detected ?? false,
+        status: res.status ?? "No Detection",
+        image: res.image ?? null,
+        camera_id: res.camera_id ?? null,
+      });
+
+      // Auto-clear after 8 seconds so WS/polling takes over again
+      clearTimeout(fileResultTimerRef.current);
+      fileResultTimerRef.current = setTimeout(() => {
+        setFileResult(null);
+      }, 8000);
+
+      // Also update history table
       if (res.detected) {
         appendHistory(
           res.status,
@@ -207,41 +137,23 @@ export default function FireDetection({ active = true }) {
           res.camera_id ?? null,
           "File upload",
         );
-        setData({
-          detected: true,
-          status: res.status,
-          image: res.image ?? null,
-          camera_id: res.camera_id ?? null,
-          detected_at: res.detected_at ?? 0,
-        });
-        currentRef.current = {
-          detected: true,
-          status: res.status,
-          image: res.image ?? null,
-          camera_id: res.camera_id ?? null,
-        };
       } else {
-        if (currentRef.current?.detected) {
-          const p = currentRef.current;
-          appendHistory(p.status, p.image, p.camera_id, "Video ended");
-          currentRef.current = null;
-        } else {
-          appendHistory("No Detection", null, null, "No fire found");
-        }
-        setData({
-          detected: false,
-          status: "No Detection",
-          image: null,
-          camera_id: null,
-          detected_at: 0,
-        });
+        appendHistory("No Detection", null, null, "No fire found");
       }
     }
-    window.addEventListener("fireDetected", handleResult);
-    return () => window.removeEventListener("fireDetected", handleResult);
-  }, []);
 
+    window.addEventListener("fireDetected", handleResult);
+    return () => {
+      window.removeEventListener("fireDetected", handleResult);
+      clearTimeout(fileResultTimerRef.current);
+    };
+  }, [appendHistory]);
+
+  // ── Merge: file upload result takes priority when it shows detected=true ───
+  // Otherwise fall back to WS/polling data so live stream still works.
+  const data = fileResult?.detected ? fileResult : hookData;
   const isAlert = !loading && data.detected;
+
   const audioRef = useSiren(isAlert, muted);
 
   return (

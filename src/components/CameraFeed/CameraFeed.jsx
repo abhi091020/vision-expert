@@ -2,74 +2,15 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useTimestamp } from "../../hooks/useDetection";
 import { WS_URL, apiPost } from "../../api/client";
 
-function useWsStream(imgRef, active) {
-  const wsRef = useRef(null);
-  const prevUrlRef = useRef(null);
-  const reconnectTimer = useRef(null);
-  const [status, setStatus] = useState("idle");
-
-  const cleanup = useCallback(() => {
-    clearTimeout(reconnectTimer.current);
-    if (wsRef.current) {
-      wsRef.current.onopen = null;
-      wsRef.current.onmessage = null;
-      wsRef.current.onerror = null;
-      wsRef.current.onclose = null;
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-    if (prevUrlRef.current) {
-      URL.revokeObjectURL(prevUrlRef.current);
-      prevUrlRef.current = null;
-    }
-    if (imgRef.current) imgRef.current.src = "";
-  }, [imgRef]);
-
-  const connect = useCallback(() => {
-    cleanup();
-    setStatus("connecting");
-
-    const ws = new WebSocket(`${WS_URL}/ws/video`);
-    ws.binaryType = "blob";
-    wsRef.current = ws;
-
-    ws.onopen = () => setStatus("live");
-
-    ws.onmessage = (e) => {
-      if (!(e.data instanceof Blob)) return;
-      const url = URL.createObjectURL(e.data);
-      if (imgRef.current) imgRef.current.src = url;
-      if (prevUrlRef.current) URL.revokeObjectURL(prevUrlRef.current);
-      prevUrlRef.current = url;
-    };
-
-    ws.onerror = () => setStatus("error");
-
-    ws.onclose = () => {
-      setStatus("error");
-      reconnectTimer.current = setTimeout(() => {
-        if (wsRef.current === ws) connect();
-      }, 3000);
-    };
-  }, [cleanup, imgRef]);
-
-  useEffect(() => {
-    if (active) {
-      connect();
-    } else {
-      cleanup();
-      setStatus("idle");
-    }
-    return cleanup;
-  }, [active, connect, cleanup]);
-
-  return { status, retry: connect };
-}
+// ── Internal WS hook REMOVED — Dashboard owns the single connection ──────────
+// frameSrc (blob URL) is passed down from Dashboard via useWebSocketStream.
 
 export default function CameraFeed({
   selectedCamera,
   streamActive,
   streamKey,
+  frameSrc, // ← blob URL from Dashboard's useWebSocketStream
+  wsConnected, // ← boolean from Dashboard's useWebSocketStream
   onStop,
 }) {
   const timestamp = useTimestamp();
@@ -84,10 +25,19 @@ export default function CameraFeed({
   const [rotation, setRotation] = useState(0);
   const dragStart = useRef(null);
 
-  const { status, retry } = useWsStream(imgRef, streamActive);
+  // ── Derive status from props (replaces old useWsStream) ───────────────────
+  const status = !streamActive ? "idle" : wsConnected ? "live" : "connecting";
   const feedLoading = streamActive && status === "connecting";
-  const feedError = streamActive && status === "error";
+  const feedError = false; // Dashboard auto-reconnects; no persistent error state needed
 
+  // ── Apply frameSrc to img element whenever it changes ────────────────────
+  useEffect(() => {
+    if (imgRef.current && frameSrc) {
+      imgRef.current.src = frameSrc;
+    }
+  }, [frameSrc]);
+
+  // ── Reset view on stream change ───────────────────────────────────────────
   useEffect(() => {
     setZoom(1);
     setTranslate({ x: 0, y: 0 });
@@ -210,7 +160,7 @@ export default function CameraFeed({
       onMouseEnter={showControls}
       onMouseDown={handleMouseDown}
     >
-      {/* WebSocket img frame */}
+      {/* Live frame from WS — blob URL set via useEffect */}
       <img
         ref={imgRef}
         alt="Live Stream"
@@ -235,26 +185,6 @@ export default function CameraFeed({
           <span className="text-white/70 text-xs tracking-widest font-mono">
             CONNECTING TO STREAM…
           </span>
-        </div>
-      )}
-
-      {/* Error state */}
-      {feedError && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center z-20 gap-2">
-          <span className="text-red-400 text-3xl">⚠️</span>
-          <span className="text-white text-sm font-bold tracking-wide">
-            Stream unavailable
-          </span>
-          <span className="text-white/50 text-xs text-center px-4">
-            Could not connect to {WS_URL}/ws/video
-          </span>
-          <button
-            onClick={retry}
-            className="mt-2 px-4 py-1.5 rounded-lg text-white text-xs font-bold transition-all hover:scale-105"
-            style={{ background: "rgba(239,68,68,0.7)" }}
-          >
-            Retry
-          </button>
         </div>
       )}
 
@@ -288,7 +218,7 @@ export default function CameraFeed({
         </>
       )}
 
-      {/* Scanlines */}
+      {/* Scanlines overlay */}
       <div
         className="absolute inset-0 pointer-events-none z-20"
         style={{
@@ -308,7 +238,7 @@ export default function CameraFeed({
         </span>
       </div>
 
-      {/* Top right controls */}
+      {/* Top-right controls */}
       <div
         className="absolute top-4 right-4 flex items-center gap-2 z-30"
         data-controls
@@ -325,42 +255,29 @@ export default function CameraFeed({
 
         {/* Zoom */}
         <div className="flex items-center gap-1">
-          <button
-            onClick={zoomOut}
-            disabled={zoom <= 1}
-            className="w-7 h-7 rounded-md flex items-center justify-center text-white font-bold text-base transition-all hover:scale-110 active:scale-95 disabled:opacity-30"
-            style={{
-              background: "rgba(0,0,0,0.5)",
-              backdropFilter: "blur(6px)",
-              border: "1px solid rgba(255,255,255,0.2)",
-            }}
-          >
-            −
-          </button>
-          <button
-            onClick={zoomReset}
-            className="px-2 h-7 rounded-md text-white font-mono text-xs transition-all hover:scale-105"
-            style={{
-              background: "rgba(0,0,0,0.5)",
-              backdropFilter: "blur(6px)",
-              border: "1px solid rgba(255,255,255,0.2)",
-              minWidth: 40,
-            }}
-          >
-            {zoom === 1 ? "1×" : `${zoom}×`}
-          </button>
-          <button
-            onClick={zoomIn}
-            disabled={zoom >= 3}
-            className="w-7 h-7 rounded-md flex items-center justify-center text-white font-bold text-base transition-all hover:scale-110 active:scale-95 disabled:opacity-30"
-            style={{
-              background: "rgba(0,0,0,0.5)",
-              backdropFilter: "blur(6px)",
-              border: "1px solid rgba(255,255,255,0.2)",
-            }}
-          >
-            +
-          </button>
+          {[
+            { label: "−", action: zoomOut, disabled: zoom <= 1 },
+            {
+              label: zoom === 1 ? "1×" : `${zoom}×`,
+              action: zoomReset,
+              isText: true,
+            },
+            { label: "+", action: zoomIn, disabled: zoom >= 3 },
+          ].map(({ label, action, disabled, isText }) => (
+            <button
+              key={label}
+              onClick={action}
+              disabled={disabled}
+              className={`${isText ? "px-2 min-w-[40px]" : "w-7"} h-7 rounded-md flex items-center justify-center text-white font-mono text-xs font-bold transition-all hover:scale-110 active:scale-95 disabled:opacity-30`}
+              style={{
+                background: "rgba(0,0,0,0.5)",
+                backdropFilter: "blur(6px)",
+                border: "1px solid rgba(255,255,255,0.2)",
+              }}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         {/* Rotate */}
@@ -368,7 +285,7 @@ export default function CameraFeed({
           <div className="flex items-center gap-1">
             <button
               onClick={rotateLeft}
-              title="Rotate left 90°"
+              title="Rotate left"
               className="w-7 h-7 rounded-md flex items-center justify-center text-white text-sm font-bold transition-all hover:scale-110 active:scale-95"
               style={{
                 background: "rgba(0,0,0,0.5)",
@@ -380,7 +297,7 @@ export default function CameraFeed({
             </button>
             <button
               onClick={rotateRight}
-              title="Rotate right 90°"
+              title="Rotate right"
               className="w-7 h-7 rounded-md flex items-center justify-center text-white text-sm font-bold transition-all hover:scale-110 active:scale-95"
               style={{
                 background: "rgba(0,0,0,0.5)",
@@ -459,7 +376,7 @@ export default function CameraFeed({
         </div>
       )}
 
-      {/* Bottom info */}
+      {/* Bottom info bar */}
       <div
         className="absolute bottom-4 left-4 right-4 flex items-end justify-between z-30"
         data-controls
@@ -467,11 +384,9 @@ export default function CameraFeed({
       >
         <span className="text-gray-300 text-xs tracking-wide">
           {streamActive
-            ? feedError
-              ? "Stream error"
-              : feedLoading
-                ? "Connecting…"
-                : "Backend AI Stream"
+            ? feedLoading
+              ? "Connecting…"
+              : "Backend AI Stream"
             : (selectedCamera?.location ?? "")}
         </span>
         <span className="text-white/80 text-xs font-mono tracking-widest">
@@ -481,22 +396,18 @@ export default function CameraFeed({
       </div>
 
       {/* Corner brackets */}
-      <div
-        className="absolute top-3 left-3 w-6 h-6 border-t-2 border-l-2 border-white/50 z-30"
-        style={fadeStyle}
-      />
-      <div
-        className="absolute top-3 right-3 w-6 h-6 border-t-2 border-r-2 border-white/50 z-30"
-        style={fadeStyle}
-      />
-      <div
-        className="absolute bottom-3 left-3 w-6 h-6 border-b-2 border-l-2 border-white/50 z-30"
-        style={fadeStyle}
-      />
-      <div
-        className="absolute bottom-3 right-3 w-6 h-6 border-b-2 border-r-2 border-white/50 z-30"
-        style={fadeStyle}
-      />
+      {[
+        ["top-3 left-3", "border-t-2 border-l-2"],
+        ["top-3 right-3", "border-t-2 border-r-2"],
+        ["bottom-3 left-3", "border-b-2 border-l-2"],
+        ["bottom-3 right-3", "border-b-2 border-r-2"],
+      ].map(([pos, border]) => (
+        <div
+          key={pos}
+          className={`absolute ${pos} w-6 h-6 ${border} border-white/50 z-30`}
+          style={fadeStyle}
+        />
+      ))}
     </div>
   );
 }

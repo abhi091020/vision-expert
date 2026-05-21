@@ -1,63 +1,43 @@
-import { useState, useEffect } from "react";
-import { apiGet, apiPost, apiDelete } from "../../api/client";
+import { useCameras } from "../../hooks/useCameras";
+import { getCameraStreamUrl } from "../../api/cameras";
 
+/**
+ * CameraTable
+ *
+ * Fully wired to the new /api/cameras/* endpoints via useCameras hook.
+ * Connect → POST /api/cameras/{id}/start
+ * Stop    → POST /api/cameras/{id}/stop
+ * Delete  → DELETE /api/cameras/{id}
+ * Status  → derived from camera.running / camera.status field
+ */
 export default function CameraTable({ onStreamStart, onStreamStop }) {
-  const [cameras, setCameras] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [connectingId, setConnectingId] = useState(null);
-  const [stoppingId, setStoppingId] = useState(null);
-  const [activeId, setActiveId] = useState(null);
+  const { cameras, loading, handleStart, handleStop, handleDelete } =
+    useCameras(5000);
 
-  useEffect(() => {
-    fetchCameras();
-    const interval = setInterval(fetchCameras, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  async function fetchCameras() {
+  async function doStart(cam) {
     try {
-      const data = await apiGet("/cameras");
-      setCameras(data);
-    } catch (_) {
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleConnect(cam) {
-    setConnectingId(cam.id);
-    try {
-      await apiPost(`/switch_camera/${cam.id}`);
-      setActiveId(cam.id);
+      await handleStart(cam.id);
       onStreamStart?.();
     } catch (e) {
-      alert("Failed to connect: " + e.message);
-    } finally {
-      setConnectingId(null);
+      alert("Failed to start camera: " + e.message);
     }
   }
 
-  async function handleStop(cam) {
-    setStoppingId(cam.id);
+  async function doStop(cam) {
     try {
-      await apiPost("/stop_stream");
-      setActiveId(null);
+      await handleStop(cam.id);
       onStreamStop?.();
     } catch (e) {
-      alert("Failed to stop: " + e.message);
-    } finally {
-      setStoppingId(null);
+      alert("Failed to stop camera: " + e.message);
     }
   }
 
-  async function handleDelete(id) {
-    if (!confirm("Remove this camera?")) return;
+  async function doDelete(cam) {
+    if (!confirm(`Remove camera "${cam.name ?? cam.id}"?`)) return;
     try {
-      await apiDelete(`/delete_camera/${id}`);
-      if (activeId === id) setActiveId(null);
-      fetchCameras();
+      await handleDelete(cam.id);
     } catch (e) {
-      alert("Failed to delete: " + e.message);
+      alert("Failed to delete camera: " + e.message);
     }
   }
 
@@ -87,9 +67,9 @@ export default function CameraTable({ onStreamStart, onStreamStop }) {
         </div>
       </div>
 
-      {/* Table */}
-      {loading ? (
-        <p className="text-xs text-gray-400 text-center py-3">Loading...</p>
+      {/* Content */}
+      {loading && cameras.length === 0 ? (
+        <p className="text-xs text-gray-400 text-center py-3">Loading…</p>
       ) : cameras.length === 0 ? (
         <p className="text-xs text-gray-400 text-center py-3">
           No cameras added yet.
@@ -103,96 +83,99 @@ export default function CameraTable({ onStreamStart, onStreamStop }) {
                 borderBottom: "1px solid rgba(0,0,0,0.07)",
               }}
             >
-              <th className="text-left px-3 py-2 font-bold text-gray-500 uppercase tracking-wider">
-                #
-              </th>
-              <th className="text-left px-3 py-2 font-bold text-gray-500 uppercase tracking-wider">
-                Name
-              </th>
-              <th className="text-left px-3 py-2 font-bold text-gray-500 uppercase tracking-wider">
-                URL
-              </th>
-              <th className="text-left px-3 py-2 font-bold text-gray-500 uppercase tracking-wider">
-                Status
-              </th>
-              <th className="text-left px-3 py-2 font-bold text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
+              {["#", "Name", "Source", "Type", "Status", "Actions"].map((h) => (
+                <th
+                  key={h}
+                  className="text-left px-3 py-2 font-bold text-gray-500 uppercase tracking-wider"
+                >
+                  {h}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {cameras.map((cam, i) => {
-              const isActive = activeId === cam.id;
-              const isConnecting = connectingId === cam.id;
-              const isStopping = stoppingId === cam.id;
+              const isRunning = cam.running ?? cam.status === "running";
               return (
                 <tr
                   key={cam.id}
                   style={{
-                    background: isActive
-                      ? "rgba(0,133,212,0.06)"
+                    background: isRunning
+                      ? "rgba(0,133,212,0.04)"
                       : i % 2 === 0
                         ? "rgba(255,255,255,0.6)"
                         : "rgba(248,250,252,0.6)",
                     borderBottom: "1px solid rgba(0,0,0,0.04)",
                   }}
                 >
+                  {/* # */}
                   <td
                     className="px-3 py-2 font-bold"
                     style={{ color: "#0085D4" }}
                   >
-                    #{cam.id}
+                    #{i + 1}
                   </td>
+
+                  {/* Name */}
                   <td className="px-3 py-2 font-semibold text-gray-700 whitespace-nowrap">
-                    {cam.name}
+                    {cam.name ?? `Camera ${i + 1}`}
                   </td>
+
+                  {/* Source URL */}
                   <td className="px-3 py-2 font-mono text-gray-400 max-w-[160px]">
-                    <span className="block truncate" title={cam.url}>
-                      {cam.url}
+                    <span className="block truncate" title={cam.source}>
+                      {cam.source ?? "—"}
                     </span>
                   </td>
+
+                  {/* source_type */}
+                  <td className="px-3 py-2 text-gray-500 uppercase font-medium">
+                    {cam.source_type ?? "—"}
+                  </td>
+
+                  {/* Status */}
                   <td className="px-3 py-2">
                     <span
                       className="flex items-center gap-1.5 font-bold"
                       style={
-                        isActive ? { color: "#22c55e" } : { color: "#94a3b8" }
+                        isRunning ? { color: "#22c55e" } : { color: "#94a3b8" }
                       }
                     >
                       <span
-                        className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isActive ? "bg-green-400 animate-pulse" : "bg-gray-300"}`}
+                        className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isRunning ? "bg-green-400 animate-pulse" : "bg-gray-300"}`}
                       />
-                      {isActive ? "Live" : "Idle"}
+                      {isRunning ? "Live" : "Idle"}
                     </span>
                   </td>
+
+                  {/* Actions */}
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-1.5">
-                      {isActive ? (
+                      {isRunning ? (
                         <button
-                          onClick={() => handleStop(cam)}
-                          disabled={isStopping}
-                          className="px-2.5 py-1 rounded-lg text-white text-xs font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
+                          onClick={() => doStop(cam)}
+                          className="px-2.5 py-1 rounded-lg text-white text-xs font-bold hover:opacity-90 transition-opacity"
                           style={{
                             background:
                               "linear-gradient(135deg, #ef4444, #b91c1c)",
                           }}
                         >
-                          {isStopping ? "..." : "STOP"}
+                          STOP
                         </button>
                       ) : (
                         <button
-                          onClick={() => handleConnect(cam)}
-                          disabled={isConnecting}
-                          className="px-2.5 py-1 rounded-lg text-white text-xs font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
+                          onClick={() => doStart(cam)}
+                          className="px-2.5 py-1 rounded-lg text-white text-xs font-bold hover:opacity-90 transition-opacity"
                           style={{
                             background:
                               "linear-gradient(135deg, #0085D4, #024167)",
                           }}
                         >
-                          {isConnecting ? "..." : "CONNECT"}
+                          START
                         </button>
                       )}
                       <button
-                        onClick={() => handleDelete(cam.id)}
+                        onClick={() => doDelete(cam)}
                         className="px-2 py-1 rounded-lg text-red-400 text-xs font-bold border border-red-200 hover:bg-red-50 transition-colors"
                       >
                         ✕

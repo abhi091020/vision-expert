@@ -3,9 +3,10 @@ export const NAV_TABS = [
   { id: "ppe", label: "PPE", mode: "PPE" },
   { id: "animal", label: "Animal", mode: "ANIMAL" },
   { id: "fire", label: "Fire", mode: "FIRE" },
-  { id: "dock", label: "Dock", mode: "DOCK" },
+  { id: "dock", label: "Number Plate", mode: "PLATE" }, // ✅ fixed: was "DOCK"
   { id: "secure_area", label: "Secure Area", mode: "SAFETY" },
   { id: "head_count", label: "Head Flow", mode: "COUNTING" },
+  { id: "crowd", label: "Crowd", mode: "CROWD" },
 ];
 
 // ─── PPE KIT ITEMS ──────────────────────────────────────────

@@ -1,0 +1,107 @@
+import totalCam from "../../assets/totalcam.svg";
+import activeAlert from "../../assets/activealert.svg";
+import peopleDetected from "../../assets/peopledetected.svg";
+import vehicleCount from "../../assets/vehiclecount.svg";
+import { useAnalyticsSummary } from "../../hooks/useAnalytics";
+
+function StatCard({ id, label, value, sub, subColor, icon, iconBg, loading }) {
+  return (
+    <div
+      key={id}
+      className="bg-white rounded-2xl p-3 sm:p-4 flex items-center gap-3 sm:gap-4"
+      style={{ border: "1px solid #E8EFF5" }}
+    >
+      {/* Icon */}
+      <div
+        className="w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center flex-shrink-0"
+        style={{ background: iconBg }}
+      >
+        <img
+          src={icon}
+          alt={label}
+          className="w-5 h-5 sm:w-6 sm:h-6 object-contain"
+        />
+      </div>
+
+      {/* Text */}
+      <div className="flex flex-col gap-1 sm:gap-1.5 min-w-0">
+        <p
+          className="font-poppins text-[11px] sm:text-[13px] font-medium leading-tight"
+          style={{ color: "#6B7280" }}
+        >
+          {label}
+        </p>
+
+        {/* Value — shimmer while loading */}
+        {loading ? (
+          <div className="h-7 w-16 rounded-md bg-gray-100 animate-pulse" />
+        ) : (
+          <p
+            className="font-poppins text-[22px] sm:text-[28px] font-semibold leading-none"
+            style={{ color: "#080808" }}
+          >
+            {value}
+          </p>
+        )}
+
+        <p
+          className="font-poppins text-[11px] sm:text-[12px] font-medium leading-none"
+          style={{ color: subColor }}
+        >
+          • {sub}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+export default function StatCards() {
+  const { summary, loading } = useAnalyticsSummary();
+
+  const stats = [
+    {
+      id: "cameras",
+      label: "Total Camera",
+      value: summary?.totalCameras ?? "—",
+      sub: `Active: ${summary?.activeCameras ?? "—"}`,
+      subColor: "#159615",
+      icon: totalCam,
+      iconBg: "#EAF4FB",
+    },
+    {
+      id: "alerts",
+      label: "Active Alert",
+      value: summary?.totalAlerts ?? "—",
+      sub: `Critical: ${summary?.criticalAlerts != null ? String(summary.criticalAlerts).padStart(2, "0") : "—"}`,
+      subColor: "#C21807",
+      icon: activeAlert,
+      iconBg: "#FEF2F2",
+    },
+    {
+      id: "people",
+      label: "People Detected",
+      value: summary?.peopleToday ?? "—",
+      sub: "Today",
+      subColor: "#ECAB00",
+      icon: peopleDetected,
+      iconBg: "#FFFBEB",
+    },
+    {
+      id: "vehicles",
+      label: "Vehicle Count",
+      value: summary?.vehiclesToday ?? "—",
+      sub: "Today",
+      subColor: "#322462",
+      icon: vehicleCount,
+      iconBg: "#EEF2FF",
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4 mb-4">
+      {stats.map((s) => (
+        <StatCard key={s.id} {...s} loading={loading && !summary} />
+      ))}
+    </div>
+  );
+}

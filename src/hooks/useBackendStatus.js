@@ -1,18 +1,25 @@
 import { useState, useEffect } from "react";
 import { checkBackendHealth } from "../api/client";
 
-export function useBackendStatus() {
-  const [status, setStatus] = useState("checking"); // "checking" | "online" | "offline"
+/** Returns "checking" | "online" | "offline" */
+export function useBackendStatus(pollInterval = 5000) {
+  const [status, setStatus] = useState("checking");
 
   useEffect(() => {
+    let cancelled = false;
+
     async function check() {
       const ok = await checkBackendHealth();
-      setStatus(ok ? "online" : "offline");
+      if (!cancelled) setStatus(ok ? "online" : "offline");
     }
+
     check();
-    const interval = setInterval(check, 5000);
-    return () => clearInterval(interval);
-  }, []);
+    const interval = setInterval(check, pollInterval);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [pollInterval]);
 
   return status;
 }
