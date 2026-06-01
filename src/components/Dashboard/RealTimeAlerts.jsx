@@ -1,156 +1,210 @@
-import { useAlerts } from "../../hooks/useAlerts";
-import { getEventSnapshotUrl } from "../../api/events";
+import { useState, useMemo } from "react";
+import { Camera, RefreshCw } from "lucide-react";
+import { getCameraStreamUrl, getCameraSnapshotUrl } from "../../api/cameras";
+import { getCloneStreamUrl, getCloneSnapshotUrl } from "../../api/clones";
+import { useCameras } from "../../hooks/useCameras";
+import { useClones } from "../../hooks/useClones";
 
-function AlertSkeleton() {
-  return (
-    <div className="flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-xl border border-gray-100 animate-pulse flex-shrink-0">
-      <div className="w-[72px] h-[54px] sm:w-[96px] sm:h-[72px] rounded-lg bg-gray-100 flex-shrink-0" />
-      <div className="flex-1 flex flex-col gap-2">
-        <div className="h-4 w-32 bg-gray-100 rounded" />
-        <div className="h-3 w-24 bg-gray-100 rounded" />
-        <div className="h-3 w-20 bg-gray-100 rounded" />
-      </div>
-    </div>
-  );
-}
+/**
+ * LiveCamera
+ *
+ * Feed priority:
+ *   1. selectedAlert  → clone stream  (alert.camId is a clone ID)
+ *   2. selectedCamera → camera stream (selectedCamera.id)
+ *   3. Auto           → first running clone, else first running camera
+ *
+ * "Running" is detected via: c.running || c.status === "running" || c.enabled
+ * (Backend returns `enabled: true` instead of a `running` field)
+ */
+export default function LiveCamera({ selectedAlert, selectedCamera }) {
+  const [streamError, setStreamError] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-export default function RealTimeAlerts({ selectedAlert, onSelectAlert }) {
-  const { alerts, loading, handleAck } = useAlerts({}, 5000);
+  const { cameras } = useCameras();
+  const { clones } = useClones();
+
+  // ── Helper: treat enabled/running/status cameras as "active" ───────────────
+  function isActive(c) {
+    return !!(c.running || c.status === "running" || c.enabled);
+  }
+
+  // ── Resolve which feed to show ──────────────────────────────────────────────
+  const feedSource = useMemo(() => {
+    // 1. Alert selected → always a clone
+    if (selectedAlert?.camId && selectedAlert.camId !== "—") {
+      return {
+        id: selectedAlert.camId,
+        type: "clone",
+        label: `Clone ${selectedAlert.camId}`,
+      };
+    }
+
+    // 2. Camera explicitly selected
+    if (selectedCamera?.id) {
+      return {
+        id: selectedCamera.id,
+        type: "camera",
+        label: selectedCamera.name ?? `Camera ${selectedCamera.id}`,
+      };
+    }
+
+    // 3. Auto: first active clone
+    const runningClone = clones?.find(isActive);
+    if (runningClone) {
+      return {
+        id: runningClone.id,
+        type: "clone",
+        label: runningClone.name ?? `Clone ${runningClone.id}`,
+      };
+    }
+
+    // 4. Auto: first active camera
+    const runningCamera = cameras?.find(isActive);
+    if (runningCamera) {
+      return {
+        id: runningCamera.id,
+        type: "camera",
+        label: runningCamera.name ?? `Camera ${runningCamera.id}`,
+      };
+    }
+
+    return null;
+  }, [selectedAlert, selectedCamera, clones, cameras]);
+
+  // ── Pick correct URL based on type ─────────────────────────────────────────
+  const streamUrl = feedSource
+    ? feedSource.type === "clone"
+      ? `${getCloneStreamUrl(feedSource.id)}?t=${refreshKey}`
+      : `${getCameraStreamUrl(feedSource.id)}?t=${refreshKey}`
+    : null;
+
+  const snapshotUrl = feedSource
+    ? feedSource.type === "clone"
+      ? getCloneSnapshotUrl(feedSource.id)
+      : getCameraSnapshotUrl(feedSource.id)
+    : null;
+
+  function handleRefresh() {
+    setStreamError(false);
+    setRefreshKey((k) => k + 1);
+  }
 
   return (
     <div
-      className="w-full xl:w-[42%] bg-white rounded-2xl p-4 sm:p-5 flex flex-col flex-shrink-0 min-h-0"
+      className="flex-1 bg-white rounded-2xl p-4 sm:p-5 flex flex-col"
       style={{ border: "1px solid #E8EFF5" }}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4 flex-shrink-0">
-        <h2
-          className="font-poppins text-[15px] sm:text-[16px] font-semibold"
-          style={{ color: "#374151" }}
-        >
-          Real Time Alerts
-        </h2>
-        {alerts.length > 0 && (
-          <span
-            className="px-2 py-0.5 rounded-full text-xs font-bold text-white"
-            style={{ background: "linear-gradient(135deg, #C21807, #ef4444)" }}
-          >
-            {alerts.filter((a) => !a.acknowledged).length} New
-          </span>
-        )}
-      </div>
-
-      {/* List */}
-      <div
-        className="flex flex-col gap-3 sm:gap-4 overflow-y-auto pr-1 flex-1 min-h-0"
-        style={{
-          scrollbarWidth: "thin",
-          scrollbarColor: "#0085D420 transparent",
-        }}
+      <h2
+        className="font-poppins text-[14px] sm:text-[15px] font-semibold mb-4 flex-shrink-0"
+        style={{ color: "#374151" }}
       >
-        {/* Loading skeletons */}
-        {loading && alerts.length === 0 && (
-          <>
-            <AlertSkeleton />
-            <AlertSkeleton />
-            <AlertSkeleton />
-          </>
-        )}
+        Live Camera
+      </h2>
 
-        {/* Empty state */}
-        {!loading && alerts.length === 0 && (
-          <div className="flex flex-col items-center justify-center flex-1 text-gray-400 py-10">
-            <span className="text-3xl mb-2">🔔</span>
-            <p className="text-sm font-medium font-poppins">
-              No alerts right now
+      {/* Feed container */}
+      <div className="w-full flex-1 min-h-[40vh] xl:min-h-0 rounded-xl overflow-hidden relative bg-[#0f172a]">
+        {/* No feed available */}
+        {!feedSource && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+            <Camera size={28} className="text-white opacity-20" />
+            <p className="font-poppins text-[13px] text-white opacity-30 px-4 text-center">
+              No running cameras or clones
             </p>
           </div>
         )}
 
-        {/* Alert rows */}
-        {alerts.map((alert) => (
-          <button
-            key={alert.id}
-            onClick={() => onSelectAlert(alert)}
-            className="flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-xl transition-colors text-left w-full hover:bg-gray-50 flex-shrink-0 group"
-            style={
-              selectedAlert?.id === alert.id
-                ? { background: "#EAF4FB", border: "1px solid #0085D430" }
-                : { border: "1px solid #E8EFF5" }
-            }
+        {/* MJPEG stream */}
+        {feedSource && !streamError && (
+          <img
+            key={refreshKey}
+            src={streamUrl}
+            alt="Live stream"
+            className="w-full h-full object-contain"
+            onError={() => setStreamError(true)}
+          />
+        )}
+
+        {/* Fallback snapshot on stream error */}
+        {feedSource && streamError && snapshotUrl && (
+          <img
+            src={snapshotUrl}
+            alt="Snapshot fallback"
+            className="w-full h-full object-contain opacity-80"
+            onError={() => {}}
+          />
+        )}
+
+        {/* Stream error overlay */}
+        {feedSource && streamError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+            <p className="font-poppins text-[12px] text-white opacity-50">
+              Stream unavailable
+            </p>
+            <button
+              onClick={handleRefresh}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 text-white text-xs font-medium hover:bg-white/20 transition-colors"
+            >
+              <RefreshCw size={12} />
+              Retry
+            </button>
+          </div>
+        )}
+
+        {/* LIVE badge */}
+        {feedSource && !streamError && (
+          <div
+            className="absolute top-3 right-3 px-2.5 py-1 rounded text-white text-xs font-bold flex items-center gap-1 font-poppins"
+            style={{ background: "rgba(194,24,7,0.85)" }}
           >
-            {/* Thumbnail — event snapshot if available */}
-            <div className="w-[72px] h-[54px] sm:w-[96px] sm:h-[72px] rounded-lg flex-shrink-0 overflow-hidden bg-[#1e293b]">
-              {alert.event_id && (
-                <img
-                  src={getEventSnapshotUrl(alert.event_id)}
-                  alt="snapshot"
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    e.target.style.display = "none";
-                  }}
-                />
-              )}
-            </div>
+            <span className="w-1.5 h-1.5 rounded-full bg-white inline-block animate-pulse" />
+            LIVE
+          </div>
+        )}
 
-            {/* Text */}
-            <div className="flex-1 min-w-0">
-              <p
-                className="font-poppins text-[14px] sm:text-[16px] font-semibold leading-none"
-                style={{ color: "#023350" }}
-              >
-                {alert.type}
-              </p>
-              <p
-                className="font-poppins text-[11px] sm:text-[13px] font-normal leading-none mt-1.5 sm:mt-2"
-                style={{ color: "#6B7280" }}
-              >
-                Camera ID: {alert.camId}
-              </p>
-              <p
-                className="font-poppins text-[11px] sm:text-[13px] font-medium leading-none mt-1.5 sm:mt-2"
-                style={{ color: "#6B7280" }}
-              >
-                {alert.uiTime} • {alert.uiDate}
-              </p>
-            </div>
+        {/* CLONE badge — bottom left */}
+        {feedSource?.type === "clone" && (
+          <div
+            className="absolute bottom-3 left-3 px-2 py-0.5 rounded text-[10px] font-bold font-poppins"
+            style={{ background: "rgba(124,58,237,0.75)", color: "#fff" }}
+          >
+            CLONE
+          </div>
+        )}
 
-            {/* Right side: severity + ack button */}
-            <div className="flex flex-col items-end gap-2 flex-shrink-0">
-              <span
-                className="font-poppins text-[11px] sm:text-[13px] font-semibold flex items-center justify-center"
-                style={{
-                  color: alert.uiSeverityColor,
-                  background: `${alert.uiSeverityColor}18`,
-                  border: `1px solid ${alert.uiSeverityColor}50`,
-                  borderRadius: "20px",
-                  padding: "5px 10px",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {alert.uiSeverity}
-              </span>
+        {/* Alert banner — top overlay when alert is active */}
+        {selectedAlert && (
+          <div
+            className="absolute top-0 left-0 right-0 flex items-center justify-center gap-1.5 py-1.5 font-poppins text-[11px] font-bold text-white"
+            style={{ background: "rgba(239,68,68,0.82)" }}
+          >
+            🚨 {selectedAlert.type} · {selectedAlert.uiTime}
+          </div>
+        )}
+      </div>
 
-              {/* Acknowledge button — visible on hover or if unacknowledged */}
-              {!alert.acknowledged && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleAck(alert.id);
-                  }}
-                  className="text-[10px] font-poppins font-medium text-gray-400 hover:text-blue-500 transition-colors opacity-0 group-hover:opacity-100"
-                >
-                  Acknowledge
-                </button>
-              )}
-              {alert.acknowledged && (
-                <span className="text-[10px] font-poppins text-green-500">
-                  ✓ Ack'd
-                </span>
-              )}
-            </div>
-          </button>
-        ))}
+      {/* Bottom bar */}
+      <div className="flex items-center justify-between mt-3 px-1 flex-shrink-0">
+        <span
+          className="font-poppins text-[12px] sm:text-[13px] font-medium"
+          style={{ color: "#0085D4" }}
+        >
+          {feedSource ? (
+            <>
+              {feedSource.type === "clone" ? "Clone" : "Camera"} ID:{" "}
+              <span className="font-semibold">{feedSource.id}</span>
+              <span className="text-gray-400 ml-2">· {feedSource.label}</span>
+            </>
+          ) : (
+            <span className="text-gray-400">No feed available</span>
+          )}
+        </span>
+        <button
+          onClick={handleRefresh}
+          className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors"
+          title="Refresh stream"
+        >
+          <RefreshCw size={14} className="text-gray-500" />
+        </button>
       </div>
     </div>
   );

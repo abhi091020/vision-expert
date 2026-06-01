@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { X, Eye, EyeOff, Loader2 } from "lucide-react";
-import { createCamera, startCamera } from "../../api/cameras"; // ✅ import startCamera
+import { createCamera } from "../../api/cameras"; // ✅ removed startCamera import
 
-const SOURCE_TYPES = ["rtsp", "file", "usb", "http"];
+// "rtsp"     → build URL from individual fields (IP, port, user, password, path)
+// "rtsp_url" → paste the full RTSP URL directly, e.g. rtsp://admin:pass@192.168.1.1:554/stream1
+// others     → single raw source input
+const SOURCE_TYPES = ["rtsp", "rtsp_url", "file", "usb", "http"];
 
 const inputClass = `w-full px-4 py-3 rounded-lg font-poppins text-[14px] outline-none transition-colors`;
 const inputStyle = { border: "1.5px solid #D1E3F0", color: "#01397C" };
@@ -67,30 +70,40 @@ export default function AddCameraModal({ onClose, onAdded }) {
       return;
     }
     if (form.source_type !== "rtsp" && !form.source.trim()) {
-      setError("Source URL is required.");
+      setError(
+        form.source_type === "rtsp_url"
+          ? "Full RTSP URL is required."
+          : "Source URL is required.",
+      );
       return;
     }
+
+    // For rtsp_url send source_type as "rtsp" so the backend treats it the
+    // same way — the only difference from the user's perspective is how the
+    // URL was built (manual fields vs. pasted directly).
+    const resolvedType =
+      form.source_type === "rtsp_url" ? "rtsp" : form.source_type;
 
     const body = {
       name: form.name.trim(),
       source: buildSource(),
-      source_type: form.source_type,
+      source_type: resolvedType,
     };
 
     setSaving(true);
     try {
-      // ✅ Step 1: Create camera
-      const newCam = await createCamera(body);
+      // ✅ Step 1: Create camera only — no auto-start.
+      // Auto-starting here caused a race condition: onAdded() would refetch
+      // the camera list before the backend finished processing the start
+      // request, so the camera always appeared as stopped. The user would
+      // then click the play button, the backend rejected it (already
+      // running), the error was swallowed silently, and nothing happened.
+      // Now the camera is created in a clean stopped state and the user
+      // starts it from the grid — which has optimistic updates so the
+      // button responds instantly.
+      await createCamera(body);
 
-      // ✅ Step 2: Auto-start immediately after creating
-      // Don't block on start failure — camera is created regardless
-      try {
-        await startCamera(newCam.id);
-      } catch {
-        // start failure is non-fatal, camera still exists
-      }
-
-      // ✅ Step 3: Refresh list & close
+      // ✅ Step 2: Notify parent to refetch, then close
       onAdded?.();
       onClose();
     } catch (e) {
@@ -163,7 +176,7 @@ export default function AddCameraModal({ onClose, onAdded }) {
               >
                 {SOURCE_TYPES.map((t) => (
                   <option key={t} value={t}>
-                    {t.toUpperCase()}
+                    {t === "rtsp_url" ? "RTSP (Direct URL)" : t.toUpperCase()}
                   </option>
                 ))}
               </select>
@@ -259,8 +272,38 @@ export default function AddCameraModal({ onClose, onAdded }) {
               </>
             )}
 
-            {/* Non-RTSP: raw source URL */}
-            {form.source_type !== "rtsp" && (
+            {/* rtsp_url: single full URL input */}
+            {form.source_type === "rtsp_url" && (
+              <div className="sm:col-span-2 flex flex-col gap-3">
+                <Field label="Full RTSP URL *">
+                  <input
+                    type="text"
+                    value={form.source}
+                    onChange={(e) => set("source", e.target.value)}
+                    placeholder="rtsp://admin:pass%40123@192.168.10.89:554/stream1"
+                    className={inputClass}
+                    style={inputStyle}
+                    onFocus={(e) => Object.assign(e.target.style, focusStyle)}
+                    onBlur={(e) => Object.assign(e.target.style, blurStyle)}
+                  />
+                </Field>
+                <p className="font-poppins text-[11px] text-gray-400 leading-relaxed">
+                  💡 Paste the complete RTSP URL including credentials. Special
+                  characters in passwords must be URL-encoded (e.g.&nbsp;
+                  <span className="font-mono" style={{ color: "#0085D4" }}>
+                    @
+                  </span>
+                  &nbsp;→&nbsp;
+                  <span className="font-mono" style={{ color: "#0085D4" }}>
+                    %40
+                  </span>
+                  ).
+                </p>
+              </div>
+            )}
+
+            {/* Non-RTSP / non-rtsp_url: raw source URL */}
+            {form.source_type !== "rtsp" && form.source_type !== "rtsp_url" && (
               <div className="sm:col-span-2">
                 <Field label="Source URL / Path *">
                   <input
@@ -310,7 +353,7 @@ export default function AddCameraModal({ onClose, onAdded }) {
               }}
             >
               {saving && <Loader2 size={14} className="animate-spin" />}
-              {saving ? "Starting…" : "Save Camera"}
+              {saving ? "Saving…" : "Save Camera"}
             </button>
           </div>
         </div>

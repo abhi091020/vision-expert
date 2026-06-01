@@ -3,6 +3,7 @@ import activeAlert from "../../assets/activealert.svg";
 import peopleDetected from "../../assets/peopledetected.svg";
 import vehicleCount from "../../assets/vehiclecount.svg";
 import { useAnalyticsSummary } from "../../hooks/useAnalytics";
+import { useClones } from "../../hooks/useClones";
 
 function StatCard({ id, label, value, sub, subColor, icon, iconBg, loading }) {
   return (
@@ -56,12 +57,20 @@ function StatCard({ id, label, value, sub, subColor, icon, iconBg, loading }) {
 }
 
 export default function StatCards() {
-  const { summary, loading } = useAnalyticsSummary();
+  const { summary, loading: summaryLoading } = useAnalyticsSummary();
+  const { clones, loading: clonesLoading } = useClones();
+
+  // Derive active clone count from the clones list directly
+  const totalClones = clones?.length ?? 0;
+  const activeClones =
+    clones?.filter((c) => c.running ?? c.status === "running").length ?? 0;
+
+  const loading = summaryLoading && !summary;
 
   const stats = [
     {
       id: "cameras",
-      label: "Total Camera",
+      label: "Total Cameras",
       value: summary?.totalCameras ?? "—",
       sub: `Active: ${summary?.activeCameras ?? "—"}`,
       subColor: "#159615",
@@ -69,30 +78,34 @@ export default function StatCards() {
       iconBg: "#EAF4FB",
     },
     {
+      id: "clones",
+      label: "Total Clones",
+      value: clonesLoading && totalClones === 0 ? "—" : totalClones,
+      sub: `Active: ${clonesLoading && totalClones === 0 ? "—" : activeClones}`,
+      subColor: "#7C3AED",
+      icon: peopleDetected, // swap for a clone/fork icon asset when available
+      iconBg: "#F5F3FF",
+    },
+    {
       id: "alerts",
-      label: "Active Alert",
+      label: "Active Alerts",
       value: summary?.totalAlerts ?? "—",
-      sub: `Critical: ${summary?.criticalAlerts != null ? String(summary.criticalAlerts).padStart(2, "0") : "—"}`,
+      sub: `Critical: ${
+        summary?.criticalAlerts != null
+          ? String(summary.criticalAlerts).padStart(2, "0")
+          : "—"
+      }`,
       subColor: "#C21807",
       icon: activeAlert,
       iconBg: "#FEF2F2",
     },
     {
-      id: "people",
-      label: "People Detected",
-      value: summary?.peopleToday ?? "—",
-      sub: "Today",
-      subColor: "#ECAB00",
-      icon: peopleDetected,
-      iconBg: "#FFFBEB",
-    },
-    {
-      id: "vehicles",
-      label: "Vehicle Count",
-      value: summary?.vehiclesToday ?? "—",
-      sub: "Today",
-      subColor: "#322462",
-      icon: vehicleCount,
+      id: "detections",
+      label: "Detections Today",
+      value: summary?.eventsToday ?? "—",
+      sub: "All modes combined",
+      subColor: "#0085D4",
+      icon: vehicleCount, // swap for a detections icon asset when available
       iconBg: "#EEF2FF",
     },
   ];
@@ -100,7 +113,7 @@ export default function StatCards() {
   return (
     <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4 mb-4">
       {stats.map((s) => (
-        <StatCard key={s.id} {...s} loading={loading && !summary} />
+        <StatCard key={s.id} {...s} loading={loading} />
       ))}
     </div>
   );

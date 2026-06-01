@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { PPE_ITEMS } from "../data/mockData";
 import { apiGet } from "../api/client";
+import { getAnimalStatus } from "../api/animal";
 
 // ─── useDetection ─────────────────────────────────────────────────────────────
 // Polls /ppe/status every second for live PPE violation updates
@@ -220,34 +221,39 @@ export function useAnimalStatus(active = true, wsDetections = null) {
 
   // WS path
   useEffect(() => {
-    if (!wsDetections) return;
-    setLoading(false);
-    setData({
-      detected: wsDetections.detected ?? false,
-      animal: wsDetections.animal ?? null,
-      confidence: wsDetections.confidence ?? 0,
-      image: wsDetections.annotated ?? wsDetections.image ?? null,
-      dangerous: wsDetections.dangerous ?? false,
-    });
+    if (!active || wsDetections !== null) return;
 
-    if (wsDetections.detected && wsDetections.animal) {
-      const now = Date.now();
-      if (now - lastAppendRef.current >= 3000) {
-        lastAppendRef.current = now;
-        setHistory((prev) => [
-          {
-            id: now,
-            animal: wsDetections.animal,
-            confidence: wsDetections.confidence,
-            dangerous: wsDetections.dangerous,
-            image: wsDetections.annotated ?? wsDetections.image,
-            time: new Date().toLocaleTimeString(),
-          },
-          ...prev.slice(0, 49),
-        ]);
+    async function poll() {
+      try {
+        const res = await getAnimalStatus(); // ← was: apiGet("/animal_status")
+        setData(res);
+        if (res.detected && res.animal) {
+          const now = Date.now();
+          if (now - lastAppendRef.current >= 3000) {
+            lastAppendRef.current = now;
+            setHistory((prev) => [
+              {
+                id: now,
+                animal: res.animal,
+                confidence: res.confidence,
+                dangerous: res.dangerous,
+                image: res.image,
+                time: new Date().toLocaleTimeString(),
+              },
+              ...prev.slice(0, 49),
+            ]);
+          }
+        }
+      } catch (_) {
+      } finally {
+        setLoading(false);
       }
     }
-  }, [wsDetections]);
+
+    poll();
+    const interval = setInterval(poll, 2000);
+    return () => clearInterval(interval);
+  }, [active, wsDetections]);
 
   // Fallback polling
   useEffect(() => {

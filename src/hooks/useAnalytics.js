@@ -53,6 +53,12 @@ export function useAnalyticsSummary(params = {}, pollInterval = 15000) {
           raw.vehicle_count ??
           raw.total_vehicles ??
           0,
+        eventsToday:
+          raw.events_today ??
+          raw.total_events ??
+          raw.detections_today ??
+          raw.total_detections ??
+          0,
       });
       setError(null);
     } catch (e) {

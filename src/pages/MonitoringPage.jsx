@@ -4,8 +4,11 @@ import AddCameraModal from "../components/Monitoring/AddCameraModal";
 import Footer from "../components/Common/Footer";
 
 const MODES = [
-  "PPE Kit Detection",
   "Animal Detection",
+  "Railway Detection",
+  "Vehicle Detection",
+  "Fall Detection",
+  "PPE Kit Detection",
   "Fire Detection",
   "Head Count",
   "Secure Area",
@@ -17,7 +20,9 @@ export default function MonitoringPage({ isCollapsed = false, onAddCamera }) {
   const [showModeDropdown, setShowModeDropdown] = useState(false);
   const [selectedMode, setSelectedMode] = useState("");
   const [showAddCamera, setShowAddCamera] = useState(false);
-  const [gridRefreshKey, setGridRefreshKey] = useState(0);
+  const [cloneCount, setCloneCount] = useState(0);
+
+  const cameraGridRefetchRef = useRef(null);
   const dropdownRef = useRef(null);
 
   useEffect(() => {
@@ -31,13 +36,12 @@ export default function MonitoringPage({ isCollapsed = false, onAddCamera }) {
   }, []);
 
   function handleOpenAddCamera() {
-    // Use local modal if no parent handler provided
     if (onAddCamera) onAddCamera();
     else setShowAddCamera(true);
   }
 
   function handleCameraAdded() {
-    setGridRefreshKey((k) => k + 1);
+    cameraGridRefetchRef.current?.();
   }
 
   return (
@@ -76,8 +80,16 @@ export default function MonitoringPage({ isCollapsed = false, onAddCamera }) {
               {/* Mode dropdown */}
               <div className="relative" ref={dropdownRef}>
                 <button
-                  onClick={() => setShowModeDropdown((p) => !p)}
-                  className="flex items-center gap-2 px-3 sm:px-5 py-2 sm:py-2.5 rounded-lg font-poppins text-[13px] sm:text-[14px] font-medium text-white"
+                  onClick={() =>
+                    cloneCount > 0 && setShowModeDropdown((p) => !p)
+                  }
+                  disabled={cloneCount === 0}
+                  title={
+                    cloneCount === 0
+                      ? "Add a clone to enable mode selection"
+                      : undefined
+                  }
+                  className="flex items-center gap-2 px-3 sm:px-5 py-2 sm:py-2.5 rounded-lg font-poppins text-[13px] sm:text-[14px] font-medium text-white disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
                   style={{
                     background:
                       "linear-gradient(180deg, #05517E 0%, #0085D4 100%)",
@@ -85,8 +97,22 @@ export default function MonitoringPage({ isCollapsed = false, onAddCamera }) {
                 >
                   {selectedMode || "Mode"} <span className="text-xs">▼</span>
                 </button>
+
                 {showModeDropdown && (
                   <div className="absolute right-0 top-12 z-20 bg-white rounded-xl shadow-lg border border-gray-100 py-1 w-52 sm:w-56">
+                    {selectedMode && (
+                      <button
+                        onClick={() => {
+                          setSelectedMode("");
+                          setShowModeDropdown(false);
+                        }}
+                        className="w-full text-left px-4 py-2.5 font-poppins text-[13px] hover:bg-red-50 transition-colors border-b border-gray-100"
+                        style={{ color: "#ef4444", fontWeight: 500 }}
+                      >
+                        ✕ Clear selection
+                      </button>
+                    )}
+
                     {MODES.map((mode) => (
                       <button
                         key={mode}
@@ -109,14 +135,16 @@ export default function MonitoringPage({ isCollapsed = false, onAddCamera }) {
             </div>
           </div>
 
-          {/* key= forces CameraGrid to remount/refetch when a camera is added */}
-          <CameraGrid key={gridRefreshKey} />
+          <CameraGrid
+            onRefetchReady={(fn) => (cameraGridRefetchRef.current = fn)}
+            onClonesChange={setCloneCount}
+            selectedMode={selectedMode}
+          />
         </div>
       </div>
 
       <Footer />
 
-      {/* Local AddCameraModal (if no parent handler) */}
       {showAddCamera && (
         <AddCameraModal
           onClose={() => setShowAddCamera(false)}

@@ -1,10 +1,38 @@
-// ─── Base URL ─────────────────────────────────────────────────────────────────
-// Update .env: VITE_API_BASE_URL=http://192.168.10.238:8010
-const BASE_URL = import.meta.env.VITE_API_BASE_URL;
-const WS_URL =
-  import.meta.env.VITE_WS_BASE_URL || BASE_URL.replace(/^http/, "ws");
+// ─── Base URLs ────────────────────────────────────────────────────────────────
+const BASE_URL = import.meta.env.VITE_API_BASE_URL; // Main    :8000
+const FALL_URL = import.meta.env.VITE_FALL_URL; // Fall    :9001
+const VEHICLE_URL = import.meta.env.VITE_VEHICLE_URL; // Vehicle :9002
+const RAILWAY_URL = import.meta.env.VITE_RAILWAY_URL; // Railway :9003
+const ANIMAL_URL = import.meta.env.VITE_ANIMAL_URL; // Animal  :9004
+const CROWD_URL =
+  import.meta.env.VITE_CROWD_API_BASE_URL || "http://localhost:9005"; // Crowd :9005
 
-export { BASE_URL, WS_URL };
+// ─── WebSocket URLs ───────────────────────────────────────────────────────────
+const WS_URL = import.meta.env.VITE_WS_URL || BASE_URL.replace(/^http/, "ws");
+const WS_FALL_URL =
+  import.meta.env.VITE_WS_FALL_URL || FALL_URL.replace(/^http/, "ws");
+const WS_VEHICLE_URL =
+  import.meta.env.VITE_WS_VEHICLE_URL || VEHICLE_URL.replace(/^http/, "ws");
+const WS_RAILWAY_URL =
+  import.meta.env.VITE_WS_RAILWAY_URL || RAILWAY_URL.replace(/^http/, "ws");
+const WS_ANIMAL_URL =
+  import.meta.env.VITE_WS_ANIMAL_URL || ANIMAL_URL.replace(/^http/, "ws");
+const WS_CROWD_URL = CROWD_URL.replace(/^http/, "ws");
+
+export {
+  BASE_URL,
+  FALL_URL,
+  VEHICLE_URL,
+  RAILWAY_URL,
+  ANIMAL_URL,
+  CROWD_URL,
+  WS_URL,
+  WS_FALL_URL,
+  WS_VEHICLE_URL,
+  WS_RAILWAY_URL,
+  WS_ANIMAL_URL,
+  WS_CROWD_URL,
+};
 
 // ─── Default headers ──────────────────────────────────────────────────────────
 const defaultHeaders = {
@@ -25,24 +53,23 @@ export async function checkBackendHealth() {
   }
 }
 
-// ─── Generic helpers ──────────────────────────────────────────────────────────
-export async function apiGet(endpoint) {
-  const res = await fetch(`${BASE_URL}${endpoint}`, {
+// ─── Generic helpers (accept any base) ───────────────────────────────────────
+export async function apiGet(endpoint, base = BASE_URL) {
+  const res = await fetch(`${base}${endpoint}`, {
     headers: defaultHeaders,
   });
   if (!res.ok) throw new Error(`GET ${endpoint} failed: ${res.status}`);
   return res.json();
 }
 
-export async function apiPost(endpoint, body = null) {
-  const res = await fetch(`${BASE_URL}${endpoint}`, {
+export async function apiPost(endpoint, body = null, base = BASE_URL) {
+  const res = await fetch(`${base}${endpoint}`, {
     method: "POST",
     headers: defaultHeaders,
     body: body !== null ? JSON.stringify(body) : undefined,
   });
 
   if (!res.ok) {
-    // ← add this block
     let detail = `POST ${endpoint} failed: ${res.status}`;
     try {
       const err = await res.json();
@@ -58,8 +85,8 @@ export async function apiPost(endpoint, body = null) {
   return res.json();
 }
 
-export async function apiPut(endpoint, body = null) {
-  const res = await fetch(`${BASE_URL}${endpoint}`, {
+export async function apiPut(endpoint, body = null, base = BASE_URL) {
+  const res = await fetch(`${base}${endpoint}`, {
     method: "PUT",
     headers: defaultHeaders,
     body: body !== null ? JSON.stringify(body) : undefined,
@@ -69,8 +96,8 @@ export async function apiPut(endpoint, body = null) {
 }
 
 // ─── DELETE: handles 204 No Content safely ────────────────────────────────────
-export async function apiDelete(endpoint) {
-  const res = await fetch(`${BASE_URL}${endpoint}`, {
+export async function apiDelete(endpoint, base = BASE_URL) {
+  const res = await fetch(`${base}${endpoint}`, {
     method: "DELETE",
     headers: defaultHeaders,
   });
@@ -80,8 +107,8 @@ export async function apiDelete(endpoint) {
   return res.json().catch(() => null);
 }
 
-export async function apiPostForm(endpoint, formData) {
-  const res = await fetch(`${BASE_URL}${endpoint}`, {
+export async function apiPostForm(endpoint, formData, base = BASE_URL) {
+  const res = await fetch(`${base}${endpoint}`, {
     method: "POST",
     headers: { "ngrok-skip-browser-warning": "true" },
     body: formData,
